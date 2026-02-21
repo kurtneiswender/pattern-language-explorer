@@ -9,7 +9,7 @@ export function usePatterns() {
     if (patterns.length > 0 || loading) return;
 
     setLoading(true);
-    fetch(import.meta.env.BASE_URL + 'patterns.json')
+    fetch('/patterns.json')
       .then(res => {
         if (!res.ok) throw new Error(`Failed to load patterns: ${res.status}`);
         return res.json() as Promise<Pattern[]>;
