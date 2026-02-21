@@ -1,0 +1,15 @@
+node_modules/
+dist/
+.DS_Store
+*.local
+
+# Data pipeline intermediate files
+scripts/patterns-graph.json
+scripts/patterns-merged.json
+
+# Source data repos (large, cloned separately)
+data/graphml/
+data/apl-md/
+
+# PDF
+*.pdf
