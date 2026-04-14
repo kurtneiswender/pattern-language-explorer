@@ -18,6 +18,7 @@ interface DiagramState {
   panY: number;
   addBlock: (block: Omit<PlacedBlock, 'id'>) => void;
   removeBlock: (id: string) => void;
+  moveBlock: (id: string, gridX: number, gridZ: number) => void;
   clearBlocks: () => void;
   setPan: (x: number, y: number) => void;
 }
@@ -32,6 +33,10 @@ export const useDiagramStore = create<DiagramState>((set) => ({
     })),
   removeBlock: (id) =>
     set((state) => ({ blocks: state.blocks.filter(b => b.id !== id) })),
+  moveBlock: (id, gridX, gridZ) =>
+    set((state) => ({
+      blocks: state.blocks.map(b => b.id === id ? { ...b, gridX, gridZ } : b),
+    })),
   clearBlocks: () => set({ blocks: [] }),
   setPan: (panX, panY) => set({ panX, panY }),
 }));

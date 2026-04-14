@@ -5,6 +5,16 @@ import { getBlockDef } from './BlockRegistry';
 import { IsometricBlock, type CompatibilityStatus } from './IsometricBlock';
 import { sortBlocksByDepth } from '../../lib/isometricBlocks';
 
+// Inverse isometric projection: SVG-space delta → grid delta
+// worldToScreen: x = (gx - gz) * 30,  y = (gx + gz) * 15
+// Solving:  Δgx = dx/60 + dy/30,  Δgz = dy/30 - dx/60
+function screenDeltaToGrid(dx: number, dy: number) {
+  return {
+    dgx: dx / 60 + dy / 30,
+    dgz: dy / 30 - dx / 60,
+  };
+}
+
 const SVG_WIDTH = 900;
 const SVG_HEIGHT = 600;
 const ORIGIN_X = SVG_WIDTH / 2;
@@ -15,10 +25,38 @@ interface IsometricCanvasProps {
 }
 
 export function IsometricCanvas({ onExportSvg }: IsometricCanvasProps) {
-  const { blocks, panX, panY, setPan, removeBlock } = useDiagramStore();
+  const { blocks, panX, panY, setPan, removeBlock, moveBlock } = useDiagramStore();
   const { patterns } = usePatternStore();
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Drag state
+  const [draggingBlockId, setDraggingBlockId] = useState<string | null>(null);
+  const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+  const dragStartSvg = useRef({ x: 0, y: 0 });
+  const dragStartGrid = useRef({ x: 0, z: 0 });
+  const hasDragged = useRef(false);
+
+  // Convert a mouse event to SVG-space coordinates (accounts for viewBox scaling)
+  const getSvgPos = useCallback((e: React.MouseEvent) => {
+    const svg = svgRef.current;
+    if (!svg) return { x: 0, y: 0 };
+    const rect = svg.getBoundingClientRect();
+    return {
+      x: (e.clientX - rect.left) * (SVG_WIDTH / rect.width),
+      y: (e.clientY - rect.top) * (SVG_HEIGHT / rect.height),
+    };
+  }, []);
+
+  const handleBlockMouseDown = useCallback((e: React.MouseEvent, blockId: string, gridX: number, gridZ: number) => {
+    e.stopPropagation();
+    const pos = getSvgPos(e);
+    setDraggingBlockId(blockId);
+    setDragOffset({ x: 0, y: 0 });
+    dragStartSvg.current = pos;
+    dragStartGrid.current = { x: gridX, z: gridZ };
+    hasDragged.current = false;
+  }, [getSvgPos]);
 
   // Compute compatibility status for each block based on pattern connection graph
   const compatibilityMap = useMemo<Map<string, CompatibilityStatus>>(() => {
@@ -63,15 +101,41 @@ export function IsometricCanvas({ onExportSvg }: IsometricCanvasProps) {
   }, [panX, panY]);
 
   const handleMouseMove = useCallback((e: React.MouseEvent) => {
+    if (draggingBlockId) {
+      const pos = getSvgPos(e);
+      const dx = pos.x - dragStartSvg.current.x;
+      const dy = pos.y - dragStartSvg.current.y;
+      if (Math.abs(dx) > 3 || Math.abs(dy) > 3) hasDragged.current = true;
+      setDragOffset({ x: dx, y: dy });
+      return;
+    }
     if (!isPanning.current) return;
     const dx = e.clientX - panStart.current.x;
     const dy = e.clientY - panStart.current.y;
     setPan(panOrigin.current.x + dx, panOrigin.current.y + dy);
-  }, [setPan]);
+  }, [draggingBlockId, getSvgPos, setPan]);
 
-  const handleMouseUp = useCallback(() => {
+  const handleMouseUp = useCallback((e: React.MouseEvent) => {
+    if (draggingBlockId) {
+      if (hasDragged.current) {
+        const pos = getSvgPos(e);
+        const dx = pos.x - dragStartSvg.current.x;
+        const dy = pos.y - dragStartSvg.current.y;
+        const { dgx, dgz } = screenDeltaToGrid(dx, dy);
+        const newGx = Math.round(dragStartGrid.current.x + dgx);
+        const newGz = Math.round(dragStartGrid.current.z + dgz);
+        moveBlock(draggingBlockId, newGx, newGz);
+      } else {
+        // Short click with no movement — treat as selection toggle
+        setSelectedBlockId(prev => prev === draggingBlockId ? null : draggingBlockId);
+      }
+      setDraggingBlockId(null);
+      setDragOffset({ x: 0, y: 0 });
+      hasDragged.current = false;
+      return;
+    }
     isPanning.current = false;
-  }, []);
+  }, [draggingBlockId, getSvgPos, moveBlock]);
 
   // SVG export
   const exportSvg = useCallback(() => {
@@ -113,11 +177,11 @@ export function IsometricCanvas({ onExportSvg }: IsometricCanvasProps) {
         width="100%"
         height="100%"
         viewBox={`0 0 ${SVG_WIDTH} ${SVG_HEIGHT}`}
-        className="cursor-grab active:cursor-grabbing select-none"
+        className={`select-none ${draggingBlockId ? 'cursor-grabbing' : 'cursor-grab active:cursor-grabbing'}`}
         onMouseDown={handleMouseDown}
         onMouseMove={handleMouseMove}
         onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
+        onMouseLeave={(e) => handleMouseUp(e as React.MouseEvent)}
         xmlns="http://www.w3.org/2000/svg"
         style={{ background: '#1a1a18' }}
       >
@@ -158,18 +222,24 @@ export function IsometricCanvas({ onExportSvg }: IsometricCanvasProps) {
           {sortedBlocks.map(block => {
             const def = getBlockDef(block.patternId);
             if (!def) return null;
+            const isDragging = draggingBlockId === block.id;
+            const tx = isDragging ? dragOffset.x : 0;
+            const ty = isDragging ? dragOffset.y : 0;
             return (
-              <g key={block.id} data-block="true">
+              <g
+                key={block.id}
+                data-block="true"
+                transform={isDragging ? `translate(${tx},${ty})` : undefined}
+                style={{ opacity: isDragging ? 0.75 : 1 }}
+              >
                 <IsometricBlock
                   gridX={block.gridX}
                   gridZ={block.gridZ}
                   blockDef={def}
                   label={block.label}
-                  isSelected={selectedBlockId === block.id}
+                  isSelected={!isDragging && selectedBlockId === block.id}
                   status={compatibilityMap.get(block.id) ?? 'neutral'}
-                  onClick={() => setSelectedBlockId(
-                    selectedBlockId === block.id ? null : block.id
-                  )}
+                  onMouseDown={(e) => handleBlockMouseDown(e, block.id, block.gridX, block.gridZ)}
                 />
               </g>
             );

@@ -12,6 +12,7 @@ interface IsometricBlockProps {
   isSelected?: boolean;
   status?: CompatibilityStatus;
   onClick?: () => void;
+  onMouseDown?: (e: React.MouseEvent) => void;
 }
 
 const STATUS_STROKE: Record<CompatibilityStatus, string> = {
@@ -26,7 +27,7 @@ const STATUS_FILTER: Record<CompatibilityStatus, string | undefined> = {
   neutral:   undefined,
 };
 
-export function IsometricBlock({ gridX, gridZ, blockDef, label, isSelected, status = 'neutral', onClick }: IsometricBlockProps) {
+export function IsometricBlock({ gridX, gridZ, blockDef, label, isSelected, status = 'neutral', onClick, onMouseDown }: IsometricBlockProps) {
   const { w, d, h, type } = blockDef;
   const block = { gridX, gridZ, w, d, h };
   const colors = BLOCK_FACE_COLORS[type];
@@ -45,7 +46,8 @@ export function IsometricBlock({ gridX, gridZ, blockDef, label, isSelected, stat
   return (
     <g
       onClick={onClick}
-      className="cursor-pointer"
+      onMouseDown={onMouseDown}
+      className="cursor-grab active:cursor-grabbing"
       style={{ filter: isSelected ? 'brightness(1.2)' : filterAttr }}
     >
       {/* Right face (depth) */}
