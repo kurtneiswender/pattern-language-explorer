@@ -1,7 +1,8 @@
-import { useRef, useState, useCallback, useEffect } from 'react';
+import { useRef, useState, useCallback, useEffect, useMemo } from 'react';
 import { useDiagramStore } from '../../store/useDiagramStore';
+import { usePatternStore } from '../../store/usePatternStore';
 import { getBlockDef } from './BlockRegistry';
-import { IsometricBlock } from './IsometricBlock';
+import { IsometricBlock, type CompatibilityStatus } from './IsometricBlock';
 import { sortBlocksByDepth } from '../../lib/isometricBlocks';
 
 const SVG_WIDTH = 900;
@@ -15,8 +16,39 @@ interface IsometricCanvasProps {
 
 export function IsometricCanvas({ onExportSvg }: IsometricCanvasProps) {
   const { blocks, panX, panY, setPan, removeBlock } = useDiagramStore();
+  const { patterns } = usePatternStore();
   const [selectedBlockId, setSelectedBlockId] = useState<string | null>(null);
   const svgRef = useRef<SVGSVGElement>(null);
+
+  // Compute compatibility status for each block based on pattern connection graph
+  const compatibilityMap = useMemo<Map<string, CompatibilityStatus>>(() => {
+    const map = new Map<string, CompatibilityStatus>();
+    if (blocks.length <= 1) {
+      blocks.forEach(b => map.set(b.id, 'neutral'));
+      return map;
+    }
+    const placedIds = new Set(blocks.map(b => b.patternId));
+    blocks.forEach(block => {
+      const pattern = patterns.find(p => p.id === block.patternId);
+      if (!pattern) { map.set(block.id, 'neutral'); return; }
+
+      // Direct: this pattern connects to another placed pattern
+      const ownConnIds = new Set((pattern.connections ?? []).map((c: { id: number }) => c.id));
+      const hasDirect = blocks.some(b => b.id !== block.id && ownConnIds.has(b.patternId));
+
+      // Inverse: another placed pattern connects to this one
+      const hasInverse = blocks.some(b => {
+        if (b.id === block.id) return false;
+        const other = patterns.find(p => p.id === b.patternId);
+        return other?.connections?.some((c: { id: number }) => c.id === block.patternId) ?? false;
+      });
+
+      map.set(block.id, hasDirect || hasInverse ? 'connected' : 'isolated');
+    });
+    // If only one block exists among placed and it has no peers, keep neutral
+    if (placedIds.size === 1) blocks.forEach(b => map.set(b.id, 'neutral'));
+    return map;
+  }, [blocks, patterns]);
 
   // Pan state
   const isPanning = useRef(false);
@@ -89,6 +121,27 @@ export function IsometricCanvas({ onExportSvg }: IsometricCanvasProps) {
         xmlns="http://www.w3.org/2000/svg"
         style={{ background: '#1a1a18' }}
       >
+        <defs>
+          <filter id="glow-green" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="4" result="blur" />
+            <feFlood floodColor="#4ade80" floodOpacity="0.5" result="color" />
+            <feComposite in="color" in2="blur" operator="in" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+          <filter id="glow-orange" x="-40%" y="-40%" width="180%" height="180%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feFlood floodColor="#fb923c" floodOpacity="0.35" result="color" />
+            <feComposite in="color" in2="blur" operator="in" result="coloredBlur" />
+            <feMerge>
+              <feMergeNode in="coloredBlur" />
+              <feMergeNode in="SourceGraphic" />
+            </feMerge>
+          </filter>
+        </defs>
+
         {/* Grid hint dots */}
         <g transform={transform} opacity="0.06">
           {Array.from({ length: 10 }, (_, i) => i - 5).flatMap(x =>
@@ -113,6 +166,7 @@ export function IsometricCanvas({ onExportSvg }: IsometricCanvasProps) {
                   blockDef={def}
                   label={block.label}
                   isSelected={selectedBlockId === block.id}
+                  status={compatibilityMap.get(block.id) ?? 'neutral'}
                   onClick={() => setSelectedBlockId(
                     selectedBlockId === block.id ? null : block.id
                   )}
@@ -122,6 +176,21 @@ export function IsometricCanvas({ onExportSvg }: IsometricCanvasProps) {
           })}
         </g>
       </svg>
+
+      {/* Compatibility legend */}
+      {blocks.length > 1 && (
+        <div className="absolute top-3 right-3 flex flex-col gap-1 bg-[var(--color-bark)]/80 backdrop-blur-sm border border-[var(--color-stone)] rounded px-2.5 py-2 pointer-events-none">
+          <p className="text-[10px] uppercase tracking-widest text-[var(--color-clay)] mb-0.5">Connection</p>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-sm" style={{ boxShadow: '0 0 6px #4ade80', border: '1.5px solid #4ade80' }} />
+            <span className="text-[10px] text-[var(--color-sand)]">Connected in language</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="w-2.5 h-2.5 rounded-sm" style={{ border: '1.5px solid #fb923c' }} />
+            <span className="text-[10px] text-[var(--color-sand)]">No relationship found</span>
+          </div>
+        </div>
+      )}
 
       {/* Selected block controls */}
       {selectedBlockId && (

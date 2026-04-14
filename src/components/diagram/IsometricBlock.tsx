@@ -2,16 +2,31 @@ import { makeTopFace, makeLeftFace, makeRightFace } from '../../lib/isometricBlo
 import { BLOCK_FACE_COLORS, type BlockDef } from './BlockRegistry';
 import { worldToScreen } from '../../lib/isometricBlocks';
 
+export type CompatibilityStatus = 'connected' | 'isolated' | 'neutral';
+
 interface IsometricBlockProps {
   gridX: number;
   gridZ: number;
   blockDef: BlockDef;
   label: string;
   isSelected?: boolean;
+  status?: CompatibilityStatus;
   onClick?: () => void;
 }
 
-export function IsometricBlock({ gridX, gridZ, blockDef, label, isSelected, onClick }: IsometricBlockProps) {
+const STATUS_STROKE: Record<CompatibilityStatus, string> = {
+  connected: '#4ade80',  // green-400
+  isolated:  '#fb923c',  // orange-400
+  neutral:   'rgba(255,255,255,0.08)',
+};
+
+const STATUS_FILTER: Record<CompatibilityStatus, string | undefined> = {
+  connected: 'url(#glow-green)',
+  isolated:  'url(#glow-orange)',
+  neutral:   undefined,
+};
+
+export function IsometricBlock({ gridX, gridZ, blockDef, label, isSelected, status = 'neutral', onClick }: IsometricBlockProps) {
   const { w, d, h, type } = blockDef;
   const block = { gridX, gridZ, w, d, h };
   const colors = BLOCK_FACE_COLORS[type];
@@ -23,14 +38,15 @@ export function IsometricBlock({ gridX, gridZ, blockDef, label, isSelected, onCl
   // Label position — top face center
   const topCenter = worldToScreen(gridX + w / 2, gridZ + d / 2, h + 0.1);
 
-  const strokeColor = isSelected ? '#D4A574' : 'rgba(255,255,255,0.08)';
-  const strokeWidth = isSelected ? 1.5 : 0.5;
+  const strokeColor = isSelected ? '#D4A574' : STATUS_STROKE[status];
+  const strokeWidth = isSelected ? 1.5 : status !== 'neutral' ? 1.2 : 0.5;
+  const filterAttr = isSelected ? undefined : STATUS_FILTER[status];
 
   return (
     <g
       onClick={onClick}
       className="cursor-pointer"
-      style={{ filter: isSelected ? 'brightness(1.2)' : undefined }}
+      style={{ filter: isSelected ? 'brightness(1.2)' : filterAttr }}
     >
       {/* Right face (depth) */}
       {colors.right !== 'transparent' && (

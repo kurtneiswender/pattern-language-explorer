@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useJournalStore } from '../../store/useJournalStore';
 import { PatternTag } from './PatternTag';
 import { AIAssistant } from './AIAssistant';
@@ -31,6 +31,9 @@ export function EntryEditor() {
     } else {
       addEntry({ title, observation, location, taggedPatterns: [] });
     }
+    setSaved(true);
+    if (saveTimer.current) clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(() => setSaved(false), 2000);
   };
 
   const handleAddTag = (patternId: number) => {
@@ -51,6 +54,9 @@ export function EntryEditor() {
     const current = activeEntry?.taggedPatterns || [];
     updateEntry(activeEntryId, { taggedPatterns: current.filter(id => id !== patternId) });
   };
+
+  const [saved, setSaved] = useState(false);
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const taggedPatterns = activeEntry?.taggedPatterns || [];
 
@@ -118,9 +124,13 @@ export function EntryEditor() {
         <button
           onClick={handleSave}
           disabled={!title.trim() && !observation.trim()}
-          className="px-4 py-1.5 text-xs bg-[var(--color-accent)] text-white rounded hover:bg-[var(--color-accent-hover)] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          className={`px-4 py-1.5 text-xs rounded transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
+            saved
+              ? 'bg-green-700 text-white'
+              : 'bg-[var(--color-accent)] text-white hover:bg-[var(--color-accent-hover)]'
+          }`}
         >
-          Save Entry
+          {saved ? 'Saved ✓' : 'Save Entry'}
         </button>
       </div>
     </div>
